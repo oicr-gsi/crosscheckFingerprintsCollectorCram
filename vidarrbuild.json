@@ -1,0 +1,6 @@
+{
+    "names": [
+        "crosscheckFingerprintsCollectorCram"
+    ],
+    "wdl": "crosscheckFingerprintsCollectorCram.wdl"
+}
