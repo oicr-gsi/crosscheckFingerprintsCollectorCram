@@ -263,8 +263,7 @@ Map[String,GenomeResources] resources = {
      ]
      output_meta: {
      outputFingerprints: {
-         description: "per-lane output groups; each carries the lane read group ID (limsId), the crosscheck fingerprint vcf.gz and its .tbi index, the alignment metrics json, and the samstats summary",
-         vidarr_label: "outputFingerprints"
+         description: "per-lane output groups; each carries the lane read group ID (limsId), the crosscheck fingerprint vcf.gz and its .tbi index, the alignment metrics json, and the samstats summary"
      }
      }
   }
