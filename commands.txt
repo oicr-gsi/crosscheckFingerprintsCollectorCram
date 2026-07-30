@@ -1,7 +1,7 @@
 ## Commands
-This section lists command(s) run by crosscheckFingerprintsCollectorCram workflow
+This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane workflow
 
-* Running crosscheckFingerprintsCollectorCram
+* Running crosscheckFingerprintsCollectorMultiLane
 
 ```
     set -euo pipefail
@@ -18,7 +18,19 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
       ln -s ~{inputBai} input.bam.bai
       samtools split -f "~{outputFileNamePrefix}_%!.bam" input.bam
     fi
-    for f in ~{outputFileNamePrefix}_*.bam; do samtools index "$f"; done
+
+    # samtools split silently writes nothing when the input carries no @RG
+    # headers. The rest of the workflow scatters over these files, so an empty
+    # split has to fail here rather than yield zero fingerprints.
+    shopt -s nullglob
+    lanes=(~{outputFileNamePrefix}_*.bam)
+    if [[ ${#lanes[@]} -eq 0 ]]; then
+      echo "ERROR: samtools split produced no per-lane bam. Does the input have @RG headers?" >&2
+      exit 1
+    fi
+    echo "split into ${#lanes[@]} lane(s): ${lanes[*]}" >&2
+
+    for f in "${lanes[@]}"; do samtools index "$f"; done
 ```
 ```
   set -euo pipefail

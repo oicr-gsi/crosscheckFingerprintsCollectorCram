@@ -1,20 +1,24 @@
 version 1.0
 
 # ============================================================
-#  crosscheckFingerprintsCollectorCram
+#  crosscheckFingerprintsCollectorMultiLane
 #
-#  CRAM-only variant of crosscheckFingerprintsCollector.
+#  Aligned-input, multi-lane variant of
+#  crosscheckFingerprintsCollector.
 #
 #  The general-purpose workflow accepts fastq, bam or cram and
 #  therefore carries six optional File inputs plus inputType /
 #  aligner discriminators, and pulls in the bwaMem and star
-#  subworkflows. This version takes a single required cram +
-#  index, so the input signature is flat and no alignment
-#  imports are needed.
+#  subworkflows. This version takes an already-aligned merged-
+#  lanes file - either a cram or a bam - so the input signature
+#  is flat and no alignment imports are needed.
 #
-#  Everything downstream of alignment is unchanged: optional
-#  interval filtering, optional lane splitting, optional
-#  duplicate marking, then per-lane fingerprint + metrics.
+#  The input is always assumed to hold more than one read group:
+#  it is filtered to the fingerprint intervals, split by read
+#  group, and every lane is then processed independently
+#  (optional duplicate marking, then fingerprint + metrics).
+#  There is no lane-level input path; use the general-purpose
+#  workflow for an already-split file.
 # ============================================================
 
 struct OutputGroup {
@@ -38,27 +42,29 @@ struct GenomeResources {
     String extractFingerprintModules
 }
 
-workflow crosscheckFingerprintsCollectorCram {
+workflow crosscheckFingerprintsCollectorMultiLane {
    input {
-        File cram
-        File cramIndex
+        File? cram
+        File? cramIndex
+        File? bam
+        File? bamIndex
         Boolean markDups
         Boolean filterBam
-        Boolean is_lane_level = true
         String outputFileNamePrefix
         String reference
         Int maxReads = 0
         String sampleId
    }
    parameter_meta {
-        cram: "cram file, either lane level or a merged-lanes cram"
+        cram: "merged-lanes cram file; supply this with cramIndex, or bam with bamIndex"
         cramIndex: "index (.crai) for the cram file"
+        bam: "merged-lanes bam file; supply this with bamIndex, or cram with cramIndex"
+        bamIndex: "index (.bai) for the bam file"
         markDups: "should the alignment be duplicate marked?, generally yes"
-        filterBam: "should filterBam prefilter the cram to the fingerprint intervals? Generally true"
-        is_lane_level: "true if the input cram is already at lane level; false if it is a merged-lanes cram that needs to be split before processing"
+        filterBam: "should filterBam prefilter the input to the fingerprint intervals before splitting? Generally true"
         outputFileNamePrefix: "Optional output prefix for the output"
         reference: "the reference genome for input sample"
-        maxReads: "recorded in the metrics json only; no downsampling is done for cram input"
+        maxReads: "recorded in the metrics json only; no downsampling is done for aligned input"
         sampleId: "value that will be used as the sample identifier in the vcf fingerprint"
    }
 
@@ -89,17 +95,36 @@ Map[String,GenomeResources] resources = {
   }}
 
    # -------------------------------------------------------
-   # Stage 1: Reduce a merged-lanes cram to per-lane files.
+   # Stage 0: Resolve the alignment input.
    #
-   # Filtering to the fingerprint intervals happens before the
-   # split so splitLanes works on a much smaller file. Lane-level
-   # input skips both steps and is filtered inside the scatter.
+   # Exactly one of (cram + cramIndex) or (bam + bamIndex) is expected; cram
+   # wins if both are given. Each index is resolved inside the same conditional
+   # as its alignment file, so a cram can never end up paired with a .bai. The
+   # single-element select_first fails loudly when the matching index is missing.
    # -------------------------------------------------------
-   if (filterBam && !is_lane_level) {
+   if (defined(cram)) {
+     File cramInput      = select_first([cram])
+     File cramInputIndex = select_first([cramIndex])
+   }
+   if (!defined(cram)) {
+     File bamInput      = select_first([bam])
+     File bamInputIndex = select_first([bamIndex])
+   }
+   File alignFile  = select_first([cramInput,      bamInput])
+   File alignIndex = select_first([cramInputIndex, bamInputIndex])
+
+   # -------------------------------------------------------
+   # Stage 1: Reduce the merged-lanes input to per-lane files.
+   #
+   # Filtering to the fingerprint intervals happens before the split so
+   # splitLanes works on a much smaller file. splitLanes always emits bam,
+   # whichever format came in.
+   # -------------------------------------------------------
+   if (filterBam) {
      call filterBam as filterBamPreSplit {
        input:
-         inputBam = cram,
-         inputBai = cramIndex,
+         inputBam = alignFile,
+         inputBai = alignIndex,
          intervalBed = resources[reference].intervalBed,
          refFasta = resources[reference].refFasta,
          outputFileNamePrefix = outputFileNamePrefix,
@@ -107,24 +132,18 @@ Map[String,GenomeResources] resources = {
      }
    }
 
-   if (!is_lane_level) {
-     File splitInput    = select_first([filterBamPreSplit.bam,      cram])
-     File splitInputBai = select_first([filterBamPreSplit.bamIndex, cramIndex])
-     call splitLanes {
-       input:
-         inputBam = splitInput,
-         inputBai = splitInputBai,
-         refFasta = resources[reference].refFasta,
-         outputFileNamePrefix = outputFileNamePrefix,
-         modules = resources[reference].splitLanesModules
-     }
+   call splitLanes {
+     input:
+       inputBam = select_first([filterBamPreSplit.bam,      alignFile]),
+       inputBai = select_first([filterBamPreSplit.bamIndex, alignIndex]),
+       refFasta = resources[reference].refFasta,
+       outputFileNamePrefix = outputFileNamePrefix,
+       modules = resources[reference].splitLanesModules
    }
 
-   # Single-element array for lane-level input; multi-element for split lanes.
-   # Elements are cram when the input passed through untouched, bam once
-   # filterBam or splitLanes has run; the tasks below handle either.
-   Array[File] bamsToProcess = select_first([splitLanes.laneBams,       [cram]])
-   Array[File] baisToProcess = select_first([splitLanes.laneBamIndexes, [cramIndex]])
+   # One element per read group found in the input.
+   Array[File] bamsToProcess = splitLanes.laneBams
+   Array[File] baisToProcess = splitLanes.laneBamIndexes
 
    # -------------------------------------------------------
    # Stage 2: Per-lane processing (scattered in parallel)
@@ -137,13 +156,16 @@ Map[String,GenomeResources] resources = {
    Array[Array[String]] intervalsToParallelizeBy = splitStringToArray.out
 
    scatter (idx in range(length(bamsToProcess))) {
-     # Derive a clean per-lane prefix: strip the .bam/.cram extension, then replace any
-     # remaining dots with underscores. Output-provisioning derives file identity from the
-     # name and mishandles base names containing multiple dots, which stalls provision-out
-     # for that lane.
-     String laneBase   = sub(sub(basename(bamsToProcess[idx]), "\\.bam$", ""), "\\.cram$", "")
+     # Derive a clean per-lane prefix: strip the .bam extension left by splitLanes, then
+     # replace any remaining dots with underscores. Output-provisioning derives file
+     # identity from the name and mishandles base names containing multiple dots, which
+     # stalls provision-out for that lane.
+     String laneBase   = sub(basename(bamsToProcess[idx]), "\\.bam$", "")
      String lanePrefix = sub(laneBase, "\\.", "_")
 
+     # Redundant when filterBamPreSplit already ran (it always does when filterBam is
+     # true), but kept so the per-lane knobs stay available and the filtered lane file
+     # is what feeds duplicate marking.
      if (filterBam) {
        call filterBam as filterBamLane {
          input:
@@ -231,7 +253,7 @@ Map[String,GenomeResources] resources = {
     meta {
      author: "Lawrence Heisler, Gavin Peng"
      email: "lawrence.heisler@oicr.on.ca, gpeng@oicr.on.ca"
-     description: "CRAM-only crosscheckFingerprintsCollector. Generates genotype fingerprints from a lane-level or merged-lanes cram using gatk ExtractFingerprint. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints\n##"
+     description: "Multi-lane crosscheckFingerprintsCollector for aligned input. Takes a merged-lanes cram or bam, splits it by read group, and generates a genotype fingerprint per lane using gatk ExtractFingerprint. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints\n##"
      dependencies: [
       {
         name: "gatk/4.2.0.0",
@@ -310,7 +332,19 @@ task splitLanes {
       ln -s ~{inputBai} input.bam.bai
       samtools split -f "~{outputFileNamePrefix}_%!.bam" input.bam
     fi
-    for f in ~{outputFileNamePrefix}_*.bam; do samtools index "$f"; done
+
+    # samtools split silently writes nothing when the input carries no @RG
+    # headers. The rest of the workflow scatters over these files, so an empty
+    # split has to fail here rather than yield zero fingerprints.
+    shopt -s nullglob
+    lanes=(~{outputFileNamePrefix}_*.bam)
+    if [[ ${#lanes[@]} -eq 0 ]]; then
+      echo "ERROR: samtools split produced no per-lane bam. Does the input have @RG headers?" >&2
+      exit 1
+    fi
+    echo "split into ${#lanes[@]} lane(s): ${lanes[*]}" >&2
+
+    for f in "${lanes[@]}"; do samtools index "$f"; done
   >>>
 
   output {

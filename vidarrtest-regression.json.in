@@ -3,7 +3,7 @@
     "id": "TEST_0001_WG_HG38_CRAM_MULTILANE",
     "description": "merged-lanes cram, hg38: filter to the fingerprint intervals, split by read group, then duplicate-mark and fingerprint each lane. Exercises filterBamPreSplit -> splitLanes -> per-lane scatter, the production path for a call-ready cram.",
     "arguments": {
-      "crosscheckFingerprintsCollectorCram.cram": {
+      "crosscheckFingerprintsCollectorMultiLane.cram": {
         "contents": {
           "configuration": "/.mounts/labs/gsi/testdata/crosscheckFingerprintsCollector/input_data/test_2lanes.cram",
           "externalIds": [
@@ -15,7 +15,7 @@
         },
         "type": "EXTERNAL"
       },
-      "crosscheckFingerprintsCollectorCram.cramIndex": {
+      "crosscheckFingerprintsCollectorMultiLane.cramIndex": {
         "contents": {
           "configuration": "/.mounts/labs/gsi/testdata/crosscheckFingerprintsCollector/input_data/test_2lanes.cram.crai",
           "externalIds": [
@@ -27,54 +27,55 @@
         },
         "type": "EXTERNAL"
       },
-      "crosscheckFingerprintsCollectorCram.reference": "hg38",
-      "crosscheckFingerprintsCollectorCram.outputFileNamePrefix": "TEST_0001_WG_HG38_CRAM_MULTILANE",
-      "crosscheckFingerprintsCollectorCram.sampleId": "TEST_0001_WG_HG38_CRAM_MULTILANE",
-      "crosscheckFingerprintsCollectorCram.is_lane_level": false,
-      "crosscheckFingerprintsCollectorCram.filterBam": true,
-      "crosscheckFingerprintsCollectorCram.markDups": true,
-      "crosscheckFingerprintsCollectorCram.maxReads": null,
-      "crosscheckFingerprintsCollectorCram.filterBamPreSplit.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.filterBamPreSplit.overhead": null,
-      "crosscheckFingerprintsCollectorCram.filterBamPreSplit.timeout": null,
-      "crosscheckFingerprintsCollectorCram.splitLanes.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.splitLanes.timeout": null,
-      "crosscheckFingerprintsCollectorCram.splitStringToArray.lineSeparator": null,
-      "crosscheckFingerprintsCollectorCram.splitStringToArray.recordSeparator": null,
-      "crosscheckFingerprintsCollectorCram.splitStringToArray.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.splitStringToArray.threads": null,
-      "crosscheckFingerprintsCollectorCram.splitStringToArray.timeout": null,
-      "crosscheckFingerprintsCollectorCram.splitStringToArray.modules": null,
-      "crosscheckFingerprintsCollectorCram.filterBamLane.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.filterBamLane.overhead": null,
-      "crosscheckFingerprintsCollectorCram.filterBamLane.timeout": null,
-      "crosscheckFingerprintsCollectorCram.markDuplicates.jobMemory": 64,
-      "crosscheckFingerprintsCollectorCram.markDuplicates.overhead": 6,
-      "crosscheckFingerprintsCollectorCram.markDuplicates.timeout": null,
-      "crosscheckFingerprintsCollectorCram.mergeIntervalBams.additionalParams": null,
-      "crosscheckFingerprintsCollectorCram.mergeIntervalBams.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.mergeIntervalBams.overhead": null,
-      "crosscheckFingerprintsCollectorCram.mergeIntervalBams.threads": null,
-      "crosscheckFingerprintsCollectorCram.mergeIntervalBams.timeout": null,
-      "crosscheckFingerprintsCollectorCram.alignmentMetrics.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.alignmentMetrics.timeout": null,
-      "crosscheckFingerprintsCollectorCram.extractFingerprint.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.extractFingerprint.timeout": null,
-      "crosscheckFingerprintsCollectorCram.fingerprintReadgroupInfo.jobMemory": null,
-      "crosscheckFingerprintsCollectorCram.fingerprintReadgroupInfo.timeout": null
+      "crosscheckFingerprintsCollectorMultiLane.bam": null,
+      "crosscheckFingerprintsCollectorMultiLane.bamIndex": null,
+      "crosscheckFingerprintsCollectorMultiLane.reference": "hg38",
+      "crosscheckFingerprintsCollectorMultiLane.outputFileNamePrefix": "TEST_0001_WG_HG38_CRAM_MULTILANE",
+      "crosscheckFingerprintsCollectorMultiLane.sampleId": "TEST_0001_WG_HG38_CRAM_MULTILANE",
+      "crosscheckFingerprintsCollectorMultiLane.filterBam": true,
+      "crosscheckFingerprintsCollectorMultiLane.markDups": true,
+      "crosscheckFingerprintsCollectorMultiLane.maxReads": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamPreSplit.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamPreSplit.overhead": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamPreSplit.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitLanes.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitLanes.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.lineSeparator": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.recordSeparator": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.threads": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.modules": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamLane.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamLane.overhead": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamLane.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.markDuplicates.jobMemory": 64,
+      "crosscheckFingerprintsCollectorMultiLane.markDuplicates.overhead": 6,
+      "crosscheckFingerprintsCollectorMultiLane.markDuplicates.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.additionalParams": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.overhead": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.threads": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.alignmentMetrics.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.alignmentMetrics.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.extractFingerprint.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.extractFingerprint.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.fingerprintReadgroupInfo.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.fingerprintReadgroupInfo.timeout": null
     },
     "engineArguments": {
       "write_to_cache": false,
       "read_from_cache": false
     },
     "metadata": {
-      "crosscheckFingerprintsCollectorCram.outputFingerprints": [
+      "crosscheckFingerprintsCollectorMultiLane.outputFingerprints": [
         {
           "limsId": "0124_01_LB02-01_20250815_LH00224_0210_A22YYG7LT4_1_GAGGACTT-GTTAAGCG",
           "outputVcf": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -82,7 +83,7 @@
           "outputTbi": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -90,7 +91,7 @@
           "json": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -98,7 +99,7 @@
           "samstats": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -109,7 +110,7 @@
           "outputVcf": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -117,7 +118,7 @@
           "outputTbi": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -125,7 +126,7 @@
           "json": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -133,7 +134,7 @@
           "samstats": {
             "contents": [
               {
-                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorCram_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_CRAM_MULTILANE@JENKINSID@"
               }
             ],
             "type": "ALL"
@@ -146,6 +147,158 @@
         "metrics_calculate": "@CHECKOUT@/tests/calculate.sh",
         "metrics_compare": "@CHECKOUT@/tests/compare.sh",
         "output_metrics": "/.mounts/labs/gsi/testdata/crosscheckFingerprintsCollector/output_expectation/metrics/TEST_0001_WG_HG38_CRAM_MULTILANE.metrics",
+        "type": "script"
+      }
+    ]
+  },
+  {
+    "id": "TEST_0001_WG_HG38_BAM_MULTILANE",
+    "description": "merged-lanes bam, hg38: test_2lanes.cram converted to bam, so the same path as the cram case but through the bam/bamIndex branch of the input resolution. Fingerprints are expected to match the cram case.",
+    "arguments": {
+      "crosscheckFingerprintsCollectorMultiLane.cram": null,
+      "crosscheckFingerprintsCollectorMultiLane.cramIndex": null,
+      "crosscheckFingerprintsCollectorMultiLane.bam": {
+        "contents": {
+          "configuration": "/.mounts/labs/gsi/testdata/crosscheckFingerprintsCollector/input_data/test_2lanes.bam",
+          "externalIds": [
+            {
+              "id": "TEST",
+              "provider": "TEST"
+            }
+          ]
+        },
+        "type": "EXTERNAL"
+      },
+      "crosscheckFingerprintsCollectorMultiLane.bamIndex": {
+        "contents": {
+          "configuration": "/.mounts/labs/gsi/testdata/crosscheckFingerprintsCollector/input_data/test_2lanes.bam.bai",
+          "externalIds": [
+            {
+              "id": "TEST",
+              "provider": "TEST"
+            }
+          ]
+        },
+        "type": "EXTERNAL"
+      },
+      "crosscheckFingerprintsCollectorMultiLane.reference": "hg38",
+      "crosscheckFingerprintsCollectorMultiLane.outputFileNamePrefix": "TEST_0001_WG_HG38_BAM_MULTILANE",
+      "crosscheckFingerprintsCollectorMultiLane.sampleId": "TEST_0001_WG_HG38_BAM_MULTILANE",
+      "crosscheckFingerprintsCollectorMultiLane.filterBam": true,
+      "crosscheckFingerprintsCollectorMultiLane.markDups": true,
+      "crosscheckFingerprintsCollectorMultiLane.maxReads": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamPreSplit.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamPreSplit.overhead": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamPreSplit.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitLanes.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitLanes.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.lineSeparator": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.recordSeparator": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.threads": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.splitStringToArray.modules": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamLane.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamLane.overhead": null,
+      "crosscheckFingerprintsCollectorMultiLane.filterBamLane.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.markDuplicates.jobMemory": 64,
+      "crosscheckFingerprintsCollectorMultiLane.markDuplicates.overhead": 6,
+      "crosscheckFingerprintsCollectorMultiLane.markDuplicates.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.additionalParams": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.overhead": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.threads": null,
+      "crosscheckFingerprintsCollectorMultiLane.mergeIntervalBams.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.alignmentMetrics.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.alignmentMetrics.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.extractFingerprint.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.extractFingerprint.timeout": null,
+      "crosscheckFingerprintsCollectorMultiLane.fingerprintReadgroupInfo.jobMemory": null,
+      "crosscheckFingerprintsCollectorMultiLane.fingerprintReadgroupInfo.timeout": null
+    },
+    "engineArguments": {
+      "write_to_cache": false,
+      "read_from_cache": false
+    },
+    "metadata": {
+      "crosscheckFingerprintsCollectorMultiLane.outputFingerprints": [
+        {
+          "limsId": "0124_01_LB02-01_20250815_LH00224_0210_A22YYG7LT4_1_GAGGACTT-GTTAAGCG",
+          "outputVcf": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          },
+          "outputTbi": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          },
+          "json": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          },
+          "samstats": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          }
+        },
+        {
+          "limsId": "0124_01_LB02-01_20250815_LH00224_0210_A22YYG7LT4_8_GAGGACTT-GTTAAGCG",
+          "outputVcf": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          },
+          "outputTbi": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          },
+          "json": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          },
+          "samstats": {
+            "contents": [
+              {
+                "outputDirectory": "@SCRATCH@/@DATE@_Workflow_crosscheckFingerprintsCollectorMultiLane_TEST_0001_WG_HG38_BAM_MULTILANE@JENKINSID@"
+              }
+            ],
+            "type": "ALL"
+          }
+        }
+      ]
+    },
+    "validators": [
+      {
+        "metrics_calculate": "@CHECKOUT@/tests/calculate.sh",
+        "metrics_compare": "@CHECKOUT@/tests/compare.sh",
+        "output_metrics": "/.mounts/labs/gsi/testdata/crosscheckFingerprintsCollector/output_expectation/metrics/TEST_0001_WG_HG38_BAM_MULTILANE.metrics",
         "type": "script"
       }
     ]

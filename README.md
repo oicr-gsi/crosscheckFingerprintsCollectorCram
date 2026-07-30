@@ -1,6 +1,6 @@
-# crosscheckFingerprintsCollectorCram
+# crosscheckFingerprintsCollectorMultiLane
 
-CRAM-only crosscheckFingerprintsCollector. Generates genotype fingerprints from a lane-level or merged-lanes cram using gatk ExtractFingerprint. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints
+Multi-lane crosscheckFingerprintsCollector for aligned input. Takes a merged-lanes cram or bam, splits it by read group, and generates a genotype fingerprint per lane using gatk ExtractFingerprint. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints
 ##
 
 ## Overview
@@ -20,7 +20,7 @@ CRAM-only crosscheckFingerprintsCollector. Generates genotype fingerprints from 
 
 ### Cromwell
 ```
-java -jar cromwell.jar run crosscheckFingerprintsCollectorCram.wdl --inputs inputs.json
+java -jar cromwell.jar run crosscheckFingerprintsCollectorMultiLane.wdl --inputs inputs.json
 ```
 
 ### Inputs
@@ -28,10 +28,8 @@ java -jar cromwell.jar run crosscheckFingerprintsCollectorCram.wdl --inputs inpu
 #### Required workflow parameters:
 Parameter|Value|Description
 ---|---|---
-`cram`|File|cram file, either lane level or a merged-lanes cram
-`cramIndex`|File|index (.crai) for the cram file
 `markDups`|Boolean|should the alignment be duplicate marked?, generally yes
-`filterBam`|Boolean|should filterBam prefilter the cram to the fingerprint intervals? Generally true
+`filterBam`|Boolean|should filterBam prefilter the input to the fingerprint intervals before splitting? Generally true
 `outputFileNamePrefix`|String|Optional output prefix for the output
 `reference`|String|the reference genome for input sample
 `sampleId`|String|value that will be used as the sample identifier in the vcf fingerprint
@@ -40,8 +38,11 @@ Parameter|Value|Description
 #### Optional workflow parameters:
 Parameter|Value|Default|Description
 ---|---|---|---
-`is_lane_level`|Boolean|true|true if the input cram is already at lane level; false if it is a merged-lanes cram that needs to be split before processing
-`maxReads`|Int|0|recorded in the metrics json only; no downsampling is done for cram input
+`cram`|File?|None|merged-lanes cram file; supply this with cramIndex, or bam with bamIndex
+`cramIndex`|File?|None|index (.crai) for the cram file
+`bam`|File?|None|merged-lanes bam file; supply this with bamIndex, or cram with cramIndex
+`bamIndex`|File?|None|index (.bai) for the bam file
+`maxReads`|Int|0|recorded in the metrics json only; no downsampling is done for aligned input
 
 
 #### Optional task parameters:
@@ -81,13 +82,13 @@ Parameter|Value|Default|Description
 
 Output | Type | Description | Labels
 ---|---|---|---
-`outputFingerprints`|Array[OutputGroup]|per-lane output groups; each carries the lane read group ID (limsId), the crosscheck fingerprint vcf.gz and its .tbi index, the alignment metrics json, and the samstats summary|vidarr_label: outputFingerprints
+`outputFingerprints`|Array[OutputGroup]|per-lane output groups; each carries the lane read group ID (limsId), the crosscheck fingerprint vcf.gz and its .tbi index, the alignment metrics json, and the samstats summary|
 
 
 ## Commands
-This section lists command(s) run by crosscheckFingerprintsCollectorCram workflow
+This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane workflow
 
-* Running crosscheckFingerprintsCollectorCram
+* Running crosscheckFingerprintsCollectorMultiLane
 
 ```
     set -euo pipefail
@@ -104,7 +105,19 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
       ln -s ~{inputBai} input.bam.bai
       samtools split -f "~{outputFileNamePrefix}_%!.bam" input.bam
     fi
-    for f in ~{outputFileNamePrefix}_*.bam; do samtools index "$f"; done
+
+    # samtools split silently writes nothing when the input carries no @RG
+    # headers. The rest of the workflow scatters over these files, so an empty
+    # split has to fail here rather than yield zero fingerprints.
+    shopt -s nullglob
+    lanes=(~{outputFileNamePrefix}_*.bam)
+    if [[ ${#lanes[@]} -eq 0 ]]; then
+      echo "ERROR: samtools split produced no per-lane bam. Does the input have @RG headers?" >&2
+      exit 1
+    fi
+    echo "split into ${#lanes[@]} lane(s): ${lanes[*]}" >&2
+
+    for f in "${lanes[@]}"; do samtools index "$f"; done
 ```
 ```
   set -euo pipefail
