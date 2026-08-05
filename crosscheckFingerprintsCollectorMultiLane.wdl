@@ -15,12 +15,13 @@ version 1.0
 #
 #  The input is always assumed to hold more than one read group.
 #  Rather than splitting it into per-lane files on disk, the read
-#  groups are read out of the header and each lane is then
-#  streamed from the merged file - one read group, restricted to
-#  the fingerprint intervals - directly into the tool that
-#  consumes it. No cram-to-bam conversion and no per-lane bam is
-#  written; the one exception is duplicate marking, which reads
-#  its input twice and so cannot take a stream.
+#  groups are read out of the header and each lane is then read
+#  back out of the merged file - one read group, seeking to the
+#  fingerprint intervals through the index. There is no cram-to-bam
+#  conversion of the whole input and no per-lane bam is provisioned.
+#  The samtools metrics consume that as a stream; the two Picard
+#  tools cannot (both read their input twice), so they materialize
+#  the lane inside their own task, at fingerprint-interval size.
 #
 #  There is no lane-level input path; use the general-purpose
 #  workflow for an already-split file.
@@ -38,7 +39,7 @@ struct GenomeResources {
     String refFasta
     String refHapMap
     String intervalBed
-    String readGroupIdsModules
+    String prepareLanesModules
     String markDuplicatesModules
     String alignmentMetricsModules
     String extractFingerprintModules
@@ -75,19 +76,19 @@ Map[String,GenomeResources] resources = {
     "refFasta" : "$HG38_ROOT/hg38_random.fa",
     "refHapMap" : "$CROSSCHECKFINGERPRINTS_HAPLOTYPE_MAP_ROOT/oicr_hg38_chr.map",
     "intervalBed": "$CROSSCHECKFINGERPRINTS_HAPLOTYPE_MAP_ROOT/oicr_hg38_intervals.bed",
-    "readGroupIdsModules" : "samtools/1.15 hg38/p12",
-    "markDuplicatesModules" : "gatk/4.2.0.0 samtools/1.15 hg38/p12 crosscheckfingerprints-haplotype-map/20230324",
-    "alignmentMetricsModules" : "samtools/1.15 hg38/p12 crosscheckfingerprints-haplotype-map/20230324",
-    "extractFingerprintModules" : "gatk/4.2.0.0 tabix/0.2.6 samtools/1.15 hg38/p12 crosscheckfingerprints-haplotype-map/20230324"
+    "prepareLanesModules" : "samtools/1.16.1 hg38/p12 crosscheckfingerprints-haplotype-map/20230324",
+    "markDuplicatesModules" : "gatk/4.2.0.0 samtools/1.16.1 hg38/p12",
+    "alignmentMetricsModules" : "samtools/1.16.1 hg38/p12",
+    "extractFingerprintModules" : "gatk/4.2.0.0 tabix/0.2.6 samtools/1.16.1 hg38/p12 crosscheckfingerprints-haplotype-map/20230324"
   },
   "hg19": {
     "refFasta" : "$HG19_ROOT/hg19_random.fa",
     "refHapMap" : "$CROSSCHECKFINGERPRINTS_HAPLOTYPE_MAP_ROOT/oicr_hg19_chr.map",
     "intervalBed": "$CROSSCHECKFINGERPRINTS_HAPLOTYPE_MAP_ROOT/oicr_hg19_intervals.bed",
-    "readGroupIdsModules" : "samtools/1.15 hg19/p13",
-    "markDuplicatesModules" : "gatk/4.2.0.0 samtools/1.15 hg19/p13 crosscheckfingerprints-haplotype-map/20230324",
-    "alignmentMetricsModules" : "samtools/1.15 hg19/p13 crosscheckfingerprints-haplotype-map/20230324",
-    "extractFingerprintModules" : "gatk/4.2.0.0 tabix/0.2.6 samtools/1.15 hg19/p13 crosscheckfingerprints-haplotype-map/20230324"
+    "prepareLanesModules" : "samtools/1.16.1 hg19/p13 crosscheckfingerprints-haplotype-map/20230324",
+    "markDuplicatesModules" : "gatk/4.2.0.0 samtools/1.16.1 hg19/p13",
+    "alignmentMetricsModules" : "samtools/1.16.1 hg19/p13",
+    "extractFingerprintModules" : "gatk/4.2.0.0 tabix/0.2.6 samtools/1.16.1 hg19/p13 crosscheckfingerprints-haplotype-map/20230324"
   }}
 
    # -------------------------------------------------------
@@ -110,23 +111,28 @@ Map[String,GenomeResources] resources = {
    File alignIndex = select_first([cramInputIndex, bamInputIndex])
 
    # -------------------------------------------------------
-   # Stage 1: Enumerate the lanes.
+   # Stage 1: Read the header once.
    #
-   # Only the header is read - the lane set is the set of @RG IDs. Nothing is
-   # split out here: every task below re-reads the merged input through
-   # samtools and keeps one read group with -r.
+   # Three things come out of it: the lane set (the @RG IDs), the fingerprint
+   # intervals reduced to the contigs this file actually declares, and whether
+   # its header lets the lane streams seek through the index. Nothing is split
+   # out here - every task below re-reads the merged input through samtools and
+   # keeps one read group with -r.
    # -------------------------------------------------------
-   call readGroupIds {
+   call prepareLanes {
      input:
        inputBam = alignFile,
+       inputBai = alignIndex,
+       intervalBed = resources[reference].intervalBed,
+       filterToIntervals = filterBam,
        refFasta = resources[reference].refFasta,
-       modules  = resources[reference].readGroupIdsModules
+       modules  = resources[reference].prepareLanesModules
    }
 
    # -------------------------------------------------------
    # Stage 2: Per-lane processing (scattered in parallel)
    # -------------------------------------------------------
-   scatter (readGroup in readGroupIds.ids) {
+   scatter (readGroup in prepareLanes.ids) {
      # Read group IDs routinely carry dots and other punctuation. Output
      # provisioning derives file identity from the name and mishandles base
      # names containing multiple dots, which stalls provision-out for that lane,
@@ -134,9 +140,9 @@ Map[String,GenomeResources] resources = {
      # ID verbatim.
      String lanePrefix = outputFileNamePrefix + "_" + sub(readGroup, "[^A-Za-z0-9_-]", "_")
 
-     # The only step that cannot consume a stream: MarkDuplicates passes over
-     # its input twice. The lane bam it needs is written inside the task and
-     # never leaves it, and holds just this read group over the intervals.
+     # MarkDuplicates passes over its input twice, so it cannot take a stream.
+     # The lane bam it needs is written inside the task and never leaves it, and
+     # holds just this read group over the intervals.
      if (markDups) {
        call markDuplicates {
          input:
@@ -144,7 +150,8 @@ Map[String,GenomeResources] resources = {
            inputBai = alignIndex,
            readGroup = readGroup,
            filterToIntervals = filterBam,
-           intervalBed = resources[reference].intervalBed,
+           useIndexSeek = prepareLanes.canSeek,
+           intervalBed = prepareLanes.intervals,
            refFasta = resources[reference].refFasta,
            outputFileNamePrefix = lanePrefix,
            modules = resources[reference].markDuplicatesModules
@@ -167,7 +174,8 @@ Map[String,GenomeResources] resources = {
           inputBai = laneSourceIndex,
           readGroup = readGroup,
           filterToIntervals = filterBam,
-          intervalBed = resources[reference].intervalBed,
+          useIndexSeek = prepareLanes.canSeek,
+          intervalBed = prepareLanes.intervals,
           outputFileNamePrefix = lanePrefix,
           markDups = markDups,
           maxReads = maxReads,
@@ -181,7 +189,8 @@ Map[String,GenomeResources] resources = {
           inputBai = laneSourceIndex,
           readGroup = readGroup,
           filterToIntervals = filterBam,
-          intervalBed = resources[reference].intervalBed,
+          useIndexSeek = prepareLanes.canSeek,
+          intervalBed = prepareLanes.intervals,
           haplotypeMap = resources[reference].refHapMap,
           refFasta = resources[reference].refFasta,
           outputFileNamePrefix = lanePrefix,
@@ -205,7 +214,7 @@ Map[String,GenomeResources] resources = {
     meta {
      author: "Lawrence Heisler, Gavin Peng"
      email: "lawrence.heisler@oicr.on.ca, gpeng@oicr.on.ca"
-     description: "Multi-lane crosscheckFingerprintsCollector for aligned input. Takes a merged-lanes cram or bam, reads the lane set from its @RG headers, and for each lane streams the reads of that read group that overlap the fingerprint intervals straight into gatk ExtractFingerprint - no cram-to-bam conversion and no per-lane bam on disk. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints\n##"
+     description: "Multi-lane crosscheckFingerprintsCollector for aligned input. Takes a merged-lanes cram or bam, reads the lane set from its @RG headers, and for each lane reads back only that read group over the fingerprint intervals, seeking through the index - no cram-to-bam conversion of the whole input and no per-lane bam provisioned. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints\n##"
      dependencies: [
       {
         name: "gatk/4.2.0.0",
@@ -216,7 +225,7 @@ Map[String,GenomeResources] resources = {
         url: "http://www.htslib.org"
       },
       {
-        name: "samtools/1.15",
+        name: "samtools/1.16.1",
         url: "http://www.htslib.org/"
       },
       { name: "gsi crosscheckfingerprints-haplotype-map module : crosscheckfingerprints-haplotype-map/20230324",
@@ -241,20 +250,28 @@ Map[String,GenomeResources] resources = {
 
 
 # ==========================================
-#  List the read group IDs of the merged
-#  input; header only, no data is decoded
+#  From the merged input's header: the lane
+#  set, the fingerprint intervals reduced to
+#  the contigs it declares, and whether the
+#  lane streams may seek through the index.
 # ==========================================
 
-task readGroupIds {
+task prepareLanes {
   input {
     File inputBam
+    File inputBai
+    String intervalBed
+    Boolean filterToIntervals
     String refFasta
     String modules
     Int jobMemory = 4
     Int timeout = 1
   }
   parameter_meta {
-    inputBam: "merged-lanes .cram or .bam file; only the header is read"
+    inputBam: "merged-lanes .cram or .bam file; only the header and one probe region are read"
+    inputBai: "index of the input file"
+    intervalBed: "bed file of the fingerprint intervals"
+    filterToIntervals: "whether the lane streams will use the intervals; when false the emitted bed is unused"
     refFasta: "path to reference FASTA (required for CRAM)"
     modules: "Names and versions of modules"
     jobMemory: "memory allocated for Job"
@@ -263,10 +280,16 @@ task readGroupIds {
 
   command <<<
     set -euo pipefail
+    EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
+    ln -s ~{inputBam} input.$EXT
+    if [ "$EXT" = "cram" ]; then ln -s ~{inputBai} input.cram.crai
+    else                          ln -s ~{inputBai} input.bam.bai
+    fi
 
-    samtools view -H -T "~{refFasta}" "~{inputBam}" \
-      | awk -F'\t' '/^@RG/ { for (i = 1; i <= NF; i++) if ($i ~ /^ID:/) { sub(/^ID:/, "", $i); print $i } }' \
-      | sort -u > readGroups.txt
+    samtools view -H -T "~{refFasta}" input.$EXT > header.sam
+
+    awk -F'\t' '/^@RG/ { for (i = 1; i <= NF; i++) if ($i ~ /^ID:/) { sub(/^ID:/, "", $i); print $i } }' \
+      header.sam | sort -u > readGroups.txt
 
     # Every lane downstream is keyed by read group, so a header without @RG
     # lines would silently yield zero fingerprints. Fail here instead.
@@ -275,10 +298,64 @@ task readGroupIds {
       exit 1
     fi
     echo "found $(wc -l < readGroups.txt) read group(s)" >&2
+
+    # Intervals naming a contig this file does not declare can never match, so
+    # drop them and say how many went.
+    awk -F'\t' '/^@SQ/ { for (i = 1; i <= NF; i++) if ($i ~ /^SN:/) { sub(/^SN:/, "", $i); print $i } }' \
+      header.sam | sort -u > contigs.txt
+
+    awk -F'\t' 'NR == FNR { known[$1]; next } /^(#|track|browser)/ { next } ($1 in known)' \
+      contigs.txt "~{intervalBed}" | sort -k1,1 -k2,2n > intervals.bed
+
+    kept=$(wc -l < intervals.bed)
+    total=$(grep -c -v -e '^#' -e '^track' -e '^browser' "~{intervalBed}" || true)
+    echo "fingerprint intervals: kept $kept of $total (dropped: contig not in this header)" >&2
+
+    if [[ "~{filterToIntervals}" = "true" && "$kept" -eq 0 ]]; then
+      echo "ERROR: none of the $total fingerprint intervals in ~{intervalBed} name a contig" >&2
+      echo "       declared by this input. Wrong reference build, or chr-prefix mismatch?" >&2
+      exit 1
+    fi
+
+    # Can the lane streams seek to the intervals through the index (-M -L), or do
+    # they have to filter a full sequential pass (-L)?
+    #
+    # Both give identical reads; -M is the one that makes per-lane streaming
+    # affordable, since it touches only the fingerprint intervals instead of
+    # decoding the whole file once per stream.
+    #
+    # It is not available on every samtools. Up to and including 1.15, sam_view.c
+    # loads the index only when an index file or a region argument was given:
+    #
+    #   if ( settings.fn_idx_in || nregs )                          # 1.15
+    #   if ( settings.fn_idx_in || nregs || settings.multi_region )  # 1.16 and up
+    #
+    # so with -M -L and no region argument, 1.15 hands a NULL index to the
+    # multi-region iterator and dies with "Iterator could not be created.
+    # Aborting.". Plain -L needs no index and is unaffected - which is why the
+    # older split-based pipeline ran fine on the same samtools.
+    #
+    # Probe it once here rather than let every lane task rediscover it.
+    echo "true" > canSeek.txt
+    if [[ "$kept" -gt 0 ]]; then
+      head -1 intervals.bed > probe.bed
+      if ! samtools view -c -T "~{refFasta}" -M -L probe.bed input.$EXT > /dev/null 2>probe.err; then
+        echo "false" > canSeek.txt
+        echo "WARNING: cannot seek to the fingerprint intervals through the index:" >&2
+        sed 's/^/  /' probe.err >&2
+        echo "         $(samtools --version | head -1)" >&2
+        echo "         Falling back to a full sequential pass per lane stream: same" >&2
+        echo "         reads, but every stream decodes the whole input. samtools 1.16" >&2
+        echo "         or newer restores the fast path." >&2
+      fi
+    fi
+    echo "index seeking: $(cat canSeek.txt)" >&2
   >>>
 
   output {
-    Array[String] ids = read_lines("readGroups.txt")
+    Array[String] ids  = read_lines("readGroups.txt")
+    File intervals     = "intervals.bed"
+    Boolean canSeek    = read_boolean("canSeek.txt")
   }
 
   runtime {
@@ -299,7 +376,8 @@ task markDuplicates {
   File inputBai
   String readGroup
   Boolean filterToIntervals
-  String intervalBed
+  Boolean useIndexSeek
+  File intervalBed
   String refFasta
   String modules
   String outputFileNamePrefix
@@ -312,7 +390,8 @@ task markDuplicates {
   inputBai: "index of the input file"
   readGroup: "@RG ID of the lane to mark"
   filterToIntervals: "restrict the lane to the fingerprint intervals before marking"
-  intervalBed: "bed file of the fingerprint intervals"
+  useIndexSeek: "seek to the intervals through the index (-M) instead of filtering a full pass"
+  intervalBed: "bed file of the fingerprint intervals, reduced to the contigs of this input by prepareLanes"
   refFasta: "path to reference FASTA (required for CRAM input, harmless for BAM)"
   outputFileNamePrefix: "prefix for making names for output files"
   jobMemory: "memory allocated for Job"
@@ -329,11 +408,16 @@ command <<<
   else                          ln -s ~{inputBai} input.bam.bai
   fi
 
-  # -M -L seeks to the intervals through the index; a bare -L would decode the
-  # whole file just to filter it.
+  # -M seeks to the intervals through the index; without it -L still filters
+  # correctly, but only by reading the whole file. prepareLanes probed which one
+  # this input's header supports.
   regions=()
   if [[ "~{filterToIntervals}" = "true" ]]; then
-    regions+=(-M -L "~{intervalBed}")
+    if [[ "~{useIndexSeek}" = "true" ]]; then
+      regions+=(-M -L "~{intervalBed}")
+    else
+      regions+=(-L "~{intervalBed}")
+    fi
   fi
 
   # MarkDuplicates reads its input twice, so this is the one step that needs a
@@ -376,7 +460,8 @@ command <<<
     File inputBai
     String readGroup
     Boolean filterToIntervals
-    String intervalBed
+    Boolean useIndexSeek
+    File intervalBed
     String refFasta
     String modules
     String outputFileNamePrefix
@@ -390,7 +475,8 @@ command <<<
     inputBai: "index of the input file"
     readGroup: "@RG ID of the lane to report on"
     filterToIntervals: "restrict the lane stream to the fingerprint intervals"
-    intervalBed: "bed file of the fingerprint intervals"
+    useIndexSeek: "seek to the intervals through the index (-M) instead of filtering a full pass"
+    intervalBed: "bed file of the fingerprint intervals, reduced to the contigs of this input by prepareLanes"
     refFasta: "path to reference FASTA (required for CRAM input, harmless for BAM)"
     outputFileNamePrefix: "prefix for making names for output files"
     markDups: "whether duplicate marking was run; recorded in the json"
@@ -409,9 +495,16 @@ command <<<
   else                          ln -s ~{inputBai} input.bam.bai
   fi
 
+  # -M seeks to the intervals through the index; without it -L still filters
+  # correctly, but only by reading the whole file. prepareLanes probed which one
+  # this input's header supports.
   regions=()
   if [[ "~{filterToIntervals}" = "true" ]]; then
-    regions+=(-M -L "~{intervalBed}")
+    if [[ "~{useIndexSeek}" = "true" ]]; then
+      regions+=(-M -L "~{intervalBed}")
+    else
+      regions+=(-L "~{intervalBed}")
+    fi
   fi
 
   # Each metric re-streams the lane instead of sharing a temporary bam. With
@@ -464,7 +557,8 @@ input {
  File inputBai
  String readGroup
  Boolean filterToIntervals
- String intervalBed
+ Boolean useIndexSeek
+ File intervalBed
  String modules
  String refFasta
  String outputFileNamePrefix
@@ -478,7 +572,8 @@ parameter_meta {
  inputBai: "index of the input file"
  readGroup: "@RG ID of the lane to fingerprint"
  filterToIntervals: "restrict the lane stream to the fingerprint intervals"
- intervalBed: "bed file of the fingerprint intervals"
+ useIndexSeek: "seek to the intervals through the index (-M) instead of filtering a full pass"
+ intervalBed: "bed file of the fingerprint intervals, reduced to the contigs of this input by prepareLanes"
  refFasta: "Path to reference FASTA file"
  outputFileNamePrefix: "prefix for making names for output files"
  haplotypeMap: "Hotspot SNPs are the locations of variants used for genotyping"
@@ -499,20 +594,33 @@ command <<<
  else                          ln -s ~{inputBai} input.bam.bai
  fi
 
+ # -M seeks to the intervals through the index; without it -L still filters
+ # correctly, but only by reading the whole file. prepareLanes probed which one
+ # this input's header supports.
  regions=()
  if [[ "~{filterToIntervals}" = "true" ]]; then
-   regions+=(-M -L "~{intervalBed}")
+   if [[ "~{useIndexSeek}" = "true" ]]; then
+     regions+=(-M -L "~{intervalBed}")
+   else
+     regions+=(-L "~{intervalBed}")
+   fi
  fi
 
- # The lane's reads go straight into the fingerprinter: no per-lane bam is
- # written, and the input is decoded once, over the fingerprint intervals only.
- # Streaming uncompressed bam rather than sam keeps the bgzf EOF block, so a
- # stream cut short is an error instead of a silently under-covered fingerprint.
- samtools view -u -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT \
-   | $GATK_ROOT/bin/gatk ExtractFingerprint \
+ # ExtractFingerprint cannot read a pipe: Picard opens its input more than once,
+ # and on a non-seekable stream the second read fails with
+ #   RuntimeIOException: Read error; BinaryCodec in readmode; streamed file
+ # (-I /dev/stdin does work for Picard tools that make a single pass). So the
+ # lane's reads land in a task-local bam first. It holds one read group over the
+ # fingerprint intervals, is never provisioned, and the merged input is still
+ # decoded just once - over those intervals only.
+ samtools view -b -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT > lane.bam
+
+ # No index on lane.bam: without one the fingerprinter walks it sequentially,
+ # which is what we want for a file this small.
+ $GATK_ROOT/bin/gatk ExtractFingerprint \
                     -R ~{refFasta} \
                     -H ~{haplotypeMap} \
-                    -I /dev/stdin \
+                    -I lane.bam \
                     -O ~{outputFileNamePrefix}.vcf \
                     --SAMPLE_ALIAS ~{sampleId}
 
