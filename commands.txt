@@ -5,32 +5,18 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
 
 ```
     set -euo pipefail
-    EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
-    if [ "$EXT" = "cram" ]; then
-      # samtools split does not support -T; convert CRAM to BAM first
-      ln -s ~{inputBam} input.cram
-      ln -s ~{inputBai} input.cram.crai
-      samtools view -b -T ~{refFasta} -o input_converted.bam input.cram
-      samtools index input_converted.bam
-      samtools split -f "~{outputFileNamePrefix}_%!.bam" input_converted.bam
-    else
-      ln -s ~{inputBam} input.bam
-      ln -s ~{inputBai} input.bam.bai
-      samtools split -f "~{outputFileNamePrefix}_%!.bam" input.bam
-    fi
 
-    # samtools split silently writes nothing when the input carries no @RG
-    # headers. The rest of the workflow scatters over these files, so an empty
-    # split has to fail here rather than yield zero fingerprints.
-    shopt -s nullglob
-    lanes=(~{outputFileNamePrefix}_*.bam)
-    if [[ ${#lanes[@]} -eq 0 ]]; then
-      echo "ERROR: samtools split produced no per-lane bam. Does the input have @RG headers?" >&2
+    samtools view -H -T "~{refFasta}" "~{inputBam}" \
+      | awk -F'\t' '/^@RG/ { for (i = 1; i <= NF; i++) if ($i ~ /^ID:/) { sub(/^ID:/, "", $i); print $i } }' \
+      | sort -u > readGroups.txt
+
+    # Every lane downstream is keyed by read group, so a header without @RG
+    # lines would silently yield zero fingerprints. Fail here instead.
+    if [[ ! -s readGroups.txt ]]; then
+      echo "ERROR: no @RG ID found in the input header. Does the input have read groups?" >&2
       exit 1
     fi
-    echo "split into ${#lanes[@]} lane(s): ${lanes[*]}" >&2
-
-    for f in "${lanes[@]}"; do samtools index "$f"; done
+    echo "found $(wc -l < readGroups.txt) read group(s)" >&2
 ```
 ```
   set -euo pipefail
@@ -39,44 +25,28 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
   if [ "$EXT" = "cram" ]; then ln -s ~{inputBai} input.cram.crai
   else                          ln -s ~{inputBai} input.bam.bai
   fi
-  samtools view -b -T ~{refFasta} -L ~{intervalBed} input.$EXT > ~{outputFileNamePrefix}.filtered.bam
-  samtools index ~{outputFileNamePrefix}.filtered.bam
-```
-```
-    set -euo pipefail
 
-    echo "~{str}" | tr '~{lineSeparator}' '\n' | tr '~{recordSeparator}' '\t'
-```
-```
-  set -euo pipefail
-  EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
-  ln -s ~{inputBam} input.$EXT
-  if [ "$EXT" = "cram" ]; then ln -s ~{inputBai} input.cram.crai
-  else                          ln -s ~{inputBai} input.bam.bai
+  # -M -L seeks to the intervals through the index; a bare -L would decode the
+  # whole file just to filter it.
+  regions=()
+  if [[ "~{filterToIntervals}" = "true" ]]; then
+    regions+=(-M -L "~{intervalBed}")
   fi
-  samtools view -b -T ~{refFasta} input.$EXT \
-        ~{sep=" " intervals} > intervalBam.bam
-  samtools index intervalBam.bam intervalBam.bam.bai
+
+  # MarkDuplicates reads its input twice, so this is the one step that needs a
+  # file rather than a stream. The lane bam is task-local and never provisioned.
+  samtools view -b -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT > lane.bam
 
   $GATK_ROOT/bin/gatk --java-options "-Xmx~{jobMemory - overhead}G" MarkDuplicates \
-                      -I intervalBam.bam \
+                      -I lane.bam \
                       --METRICS_FILE ~{outputFileNamePrefix}.dupmetrics \
                       --VALIDATION_STRINGENCY SILENT \
                       --CREATE_INDEX true \
                       -O ~{outputFileNamePrefix}.dupmarked.bam
-```
-```
-    set -euo pipefail
 
-    $GATK_ROOT/bin/gatk --java-options "-Xmx~{jobMemory - overhead}G" MergeSamFiles \
-    --INPUT ~{sep=" --INPUT " bams} \
-    --OUTPUT "~{outputFileName}~{suffix}.bam" \
-    --CREATE_INDEX true \
-    --SORT_ORDER coordinate \
-    --ASSUME_SORTED false \
-    --USE_THREADING true \
-    --VALIDATION_STRINGENCY SILENT \
-    ~{additionalParams}
+  # --CREATE_INDEX writes <prefix>.bai; the streams downstream look for the
+  # index beside the bam it belongs to.
+  mv ~{outputFileNamePrefix}.dupmarked.bai ~{outputFileNamePrefix}.dupmarked.bam.bai
 ```
 ```
   set -euo pipefail
@@ -87,8 +57,20 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
   else                          ln -s ~{inputBai} input.bam.bai
   fi
 
+  regions=()
+  if [[ "~{filterToIntervals}" = "true" ]]; then
+    regions+=(-M -L "~{intervalBed}")
+  fi
+
+  # Each metric re-streams the lane instead of sharing a temporary bam. With
+  # -M -L that is an index seek over the fingerprint intervals, not a full pass,
+  # and nothing is written to disk.
+  stream_lane () {
+    $SAMTOOLS_ROOT/bin/samtools view -u -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT
+  }
+
   ### samtools stats
-  $SAMTOOLS_ROOT/bin/samtools stats --reference ~{refFasta} input.$EXT > ~{outputFileNamePrefix}.samstats.txt
+  stream_lane | $SAMTOOLS_ROOT/bin/samtools stats --reference ~{refFasta} - > ~{outputFileNamePrefix}.samstats.txt
   reads=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "raw total sequences:" | cut -f3`
   mapped_reads=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "reads mapped:" | cut -f 3`
   unmapped_reads=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "reads unmapped:" | cut -f 3`
@@ -96,11 +78,11 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
   reads_duplicated=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "reads duplicated:" | cut -f 3`
 
   ### samtools coverage, with duplicates
-  $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL --reference ~{refFasta} input.$EXT > ~{outputFileNamePrefix}.coverage.txt
+  stream_lane | $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL --reference ~{refFasta} - > ~{outputFileNamePrefix}.coverage.txt
   mean_cvg=`cat ~{outputFileNamePrefix}.coverage.txt | grep -P "^chr\d+\t|^chrX\t|^chrY\t" | awk '{ space += ($3-$2)+1; bases += $7*($3-$2);} END { print bases/space }'`
 
   ### samtools coverage, deduplicated
-  $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL,DUP --reference ~{refFasta} input.$EXT > ~{outputFileNamePrefix}.dedup.coverage.txt
+  stream_lane | $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL,DUP --reference ~{refFasta} - > ~{outputFileNamePrefix}.dedup.coverage.txt
   mean_dedup_cvg=`cat ~{outputFileNamePrefix}.dedup.coverage.txt | grep -P "^chr\d+\t|^chrX\t|^chrY\t" | awk '{ space += ($3-$2)+1; bases += $7*($3-$2);} END { print bases/space }'`
 
   ### json file
@@ -109,7 +91,7 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
 ```
   set -euo pipefail
 
- # GATK needs the index beside the alignment file; Cromwell may localize
+ # samtools needs the index beside the alignment file; Cromwell may localize
  # them to different directories, so link both into the task dir.
  EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
  ln -s ~{inputBam} input.$EXT
@@ -117,18 +99,23 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
  else                          ln -s ~{inputBai} input.bam.bai
  fi
 
- $GATK_ROOT/bin/gatk ExtractFingerprint \
+ regions=()
+ if [[ "~{filterToIntervals}" = "true" ]]; then
+   regions+=(-M -L "~{intervalBed}")
+ fi
+
+ # The lane's reads go straight into the fingerprinter: no per-lane bam is
+ # written, and the input is decoded once, over the fingerprint intervals only.
+ # Streaming uncompressed bam rather than sam keeps the bgzf EOF block, so a
+ # stream cut short is an error instead of a silently under-covered fingerprint.
+ samtools view -u -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT \
+   | $GATK_ROOT/bin/gatk ExtractFingerprint \
                     -R ~{refFasta} \
                     -H ~{haplotypeMap} \
-                    -I input.$EXT \
+                    -I /dev/stdin \
                     -O ~{outputFileNamePrefix}.vcf \
                     --SAMPLE_ALIAS ~{sampleId}
 
  $TABIX_ROOT/bin/bgzip -c ~{outputFileNamePrefix}.vcf > ~{outputFileNamePrefix}.vcf.gz
  $TABIX_ROOT/bin/tabix -p vcf ~{outputFileNamePrefix}.vcf.gz
-```
-```
-    set -euo pipefail
-    samtools view -H -T ~{refFasta} ~{inputBam} \
-      | awk -F'\t' '!found && /^@RG/ { for (i=1; i<=NF; i++) if ($i ~ /^ID:/) { sub(/^ID:/, "", $i); print $i; found=1 } }'
 ```
