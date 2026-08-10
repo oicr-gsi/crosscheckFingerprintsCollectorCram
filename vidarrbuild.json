@@ -1,6 +1,6 @@
 {
     "names": [
-        "crosscheckFingerprintsCollectorCram"
+        "crosscheckFingerprintsCollectorMultiLane"
     ],
-    "wdl": "crosscheckFingerprintsCollectorCram.wdl"
+    "wdl": "crosscheckFingerprintsCollectorMultiLane.wdl"
 }

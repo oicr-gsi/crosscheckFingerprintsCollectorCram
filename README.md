@@ -1,6 +1,6 @@
-# crosscheckFingerprintsCollectorCram
+# crosscheckFingerprintsCollectorMultiLane
 
-CRAM-only crosscheckFingerprintsCollector. Generates genotype fingerprints from a lane-level or merged-lanes cram using gatk ExtractFingerprint. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints
+Multi-lane crosscheckFingerprintsCollector for aligned input. Takes a merged-lanes cram or bam, reads the lane set from its @RG headers, and for each lane reads back only that read group over the fingerprint intervals, seeking through the index - no cram-to-bam conversion of the whole input and no per-lane bam provisioned. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints
 ##
 
 ## Overview
@@ -9,8 +9,7 @@ CRAM-only crosscheckFingerprintsCollector. Generates genotype fingerprints from 
 
 * [gatk 4.2.0.0](https://gatk.broadinstitute.org)
 * [tabix 0.2.6](http://www.htslib.org)
-* [samtools 1.14](http://www.htslib.org/)
-* [samtools 1.15](http://www.htslib.org/)
+* [samtools 1.16.1](http://www.htslib.org/)
 * [gsi crosscheckfingerprints-haplotype-map module : crosscheckfingerprints-haplotype-map 20230324](https://gitlab.oicr.on.ca/ResearchIT/modulator)
 * [gsi hg38 modules : hg38 p12](https://gitlab.oicr.on.ca/ResearchIT/modulator)
 * [gsi hg19 modules : hg19 p13](https://gitlab.oicr.on.ca/ResearchIT/modulator)
@@ -20,7 +19,7 @@ CRAM-only crosscheckFingerprintsCollector. Generates genotype fingerprints from 
 
 ### Cromwell
 ```
-java -jar cromwell.jar run crosscheckFingerprintsCollectorCram.wdl --inputs inputs.json
+java -jar cromwell.jar run crosscheckFingerprintsCollectorMultiLane.wdl --inputs inputs.json
 ```
 
 ### Inputs
@@ -28,10 +27,8 @@ java -jar cromwell.jar run crosscheckFingerprintsCollectorCram.wdl --inputs inpu
 #### Required workflow parameters:
 Parameter|Value|Description
 ---|---|---
-`cram`|File|cram file, either lane level or a merged-lanes cram
-`cramIndex`|File|index (.crai) for the cram file
 `markDups`|Boolean|should the alignment be duplicate marked?, generally yes
-`filterBam`|Boolean|should filterBam prefilter the cram to the fingerprint intervals? Generally true
+`filterBam`|Boolean|should the per-lane read streams be restricted to the fingerprint intervals? Generally true
 `outputFileNamePrefix`|String|Optional output prefix for the output
 `reference`|String|the reference genome for input sample
 `sampleId`|String|value that will be used as the sample identifier in the vcf fingerprint
@@ -40,86 +37,111 @@ Parameter|Value|Description
 #### Optional workflow parameters:
 Parameter|Value|Default|Description
 ---|---|---|---
-`is_lane_level`|Boolean|true|true if the input cram is already at lane level; false if it is a merged-lanes cram that needs to be split before processing
-`maxReads`|Int|0|recorded in the metrics json only; no downsampling is done for cram input
+`cram`|File?|None|merged-lanes cram file; supply this with cramIndex, or bam with bamIndex
+`cramIndex`|File?|None|index (.crai) for the cram file
+`bam`|File?|None|merged-lanes bam file; supply this with bamIndex, or cram with cramIndex
+`bamIndex`|File?|None|index (.bai) for the bam file
+`maxReads`|Int|0|recorded in the metrics json only; no downsampling is done for aligned input
 
 
 #### Optional task parameters:
 Parameter|Value|Default|Description
 ---|---|---|---
-`filterBamPreSplit.jobMemory`|Int|16|memory allocated for Job
-`filterBamPreSplit.overhead`|Int|6|memory allocated to overhead of the job other than used in the filter command
-`filterBamPreSplit.timeout`|Int|24|Timeout in hours, needed to override imposed limits
-`splitLanes.jobMemory`|Int|16|memory allocated for Job
-`splitLanes.timeout`|Int|24|Timeout in hours, needed to override imposed limits
-`splitStringToArray.lineSeparator`|String|","|Interval group separator - these are the intervals to split by.
-`splitStringToArray.recordSeparator`|String|"+"|Interval interval group separator - this can be used to combine multiple intervals into one group.
-`splitStringToArray.jobMemory`|Int|1|Memory allocated to job (in GB).
-`splitStringToArray.threads`|Int|1|The number of threads to allocate to the job.
-`splitStringToArray.timeout`|Int|1|Maximum amount of time (in hours) the task can run for.
-`splitStringToArray.modules`|String|""|Environment module name and version to load (space separated) before command execution.
-`filterBamLane.jobMemory`|Int|16|memory allocated for Job
-`filterBamLane.overhead`|Int|6|memory allocated to overhead of the job other than used in the filter command
-`filterBamLane.timeout`|Int|24|Timeout in hours, needed to override imposed limits
+`prepareLanes.jobMemory`|Int|4|memory allocated for Job
+`prepareLanes.timeout`|Int|1|Timeout in hours, needed to override imposed limits
 `markDuplicates.jobMemory`|Int|16|memory allocated for Job
 `markDuplicates.overhead`|Int|6|memory allocated to overhead of the job other than used in markDuplicates command
 `markDuplicates.timeout`|Int|24|Timeout in hours, needed to override imposed limits
-`mergeIntervalBams.additionalParams`|String?|None|Additional parameters to pass to GATK MergeSamFiles.
-`mergeIntervalBams.jobMemory`|Int|24|Memory allocated to job (in GB).
-`mergeIntervalBams.overhead`|Int|6|Java overhead memory (in GB). jobMemory - overhead == java Xmx/heap memory.
-`mergeIntervalBams.threads`|Int|1|The number of threads to allocate to the job.
-`mergeIntervalBams.timeout`|Int|6|Maximum amount of time (in hours) the task can run for.
 `alignmentMetrics.jobMemory`|Int|8|memory allocated for Job
 `alignmentMetrics.timeout`|Int|24|Timeout in hours, needed to override imposed limits
 `extractFingerprint.jobMemory`|Int|8|memory allocated for Job
 `extractFingerprint.timeout`|Int|24|Timeout in hours, needed to override imposed limits
-`fingerprintReadgroupInfo.jobMemory`|Int|8|memory allocated for job
-`fingerprintReadgroupInfo.timeout`|Int|24|timeout in hours
 
 
 ### Outputs
 
 Output | Type | Description | Labels
 ---|---|---|---
-`outputFingerprints`|Array[OutputGroup]|per-lane output groups; each carries the lane read group ID (limsId), the crosscheck fingerprint vcf.gz and its .tbi index, the alignment metrics json, and the samstats summary|vidarr_label: outputFingerprints
+`outputFingerprints`|Array[OutputGroup]|per-lane output groups; each carries the lane read group ID (limsId), the crosscheck fingerprint vcf.gz and its .tbi index, the alignment metrics json, and the samstats summary|
 
 
 ## Commands
-This section lists command(s) run by crosscheckFingerprintsCollectorCram workflow
+This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane workflow
 
-* Running crosscheckFingerprintsCollectorCram
+* Running crosscheckFingerprintsCollectorMultiLane
 
 ```
     set -euo pipefail
     EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
-    if [ "$EXT" = "cram" ]; then
-      # samtools split does not support -T; convert CRAM to BAM first
-      ln -s ~{inputBam} input.cram
-      ln -s ~{inputBai} input.cram.crai
-      samtools view -b -T ~{refFasta} -o input_converted.bam input.cram
-      samtools index input_converted.bam
-      samtools split -f "~{outputFileNamePrefix}_%!.bam" input_converted.bam
-    else
-      ln -s ~{inputBam} input.bam
-      ln -s ~{inputBai} input.bam.bai
-      samtools split -f "~{outputFileNamePrefix}_%!.bam" input.bam
+    ln -s ~{inputBam} input.$EXT
+    if [ "$EXT" = "cram" ]; then ln -s ~{inputBai} input.cram.crai
+    else                          ln -s ~{inputBai} input.bam.bai
     fi
-    for f in ~{outputFileNamePrefix}_*.bam; do samtools index "$f"; done
-```
-```
-  set -euo pipefail
-  EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
-  ln -s ~{inputBam} input.$EXT
-  if [ "$EXT" = "cram" ]; then ln -s ~{inputBai} input.cram.crai
-  else                          ln -s ~{inputBai} input.bam.bai
-  fi
-  samtools view -b -T ~{refFasta} -L ~{intervalBed} input.$EXT > ~{outputFileNamePrefix}.filtered.bam
-  samtools index ~{outputFileNamePrefix}.filtered.bam
-```
-```
-    set -euo pipefail
 
-    echo "~{str}" | tr '~{lineSeparator}' '\n' | tr '~{recordSeparator}' '\t'
+    samtools view -H -T "~{refFasta}" input.$EXT > header.sam
+
+    awk -F'\t' '/^@RG/ { for (i = 1; i <= NF; i++) if ($i ~ /^ID:/) { sub(/^ID:/, "", $i); print $i } }' \
+      header.sam | sort -u > readGroups.txt
+
+    # Every lane downstream is keyed by read group, so a header without @RG
+    # lines would silently yield zero fingerprints. Fail here instead.
+    if [[ ! -s readGroups.txt ]]; then
+      echo "ERROR: no @RG ID found in the input header. Does the input have read groups?" >&2
+      exit 1
+    fi
+    echo "found $(wc -l < readGroups.txt) read group(s)" >&2
+
+    # Intervals naming a contig this file does not declare can never match, so
+    # drop them and say how many went.
+    awk -F'\t' '/^@SQ/ { for (i = 1; i <= NF; i++) if ($i ~ /^SN:/) { sub(/^SN:/, "", $i); print $i } }' \
+      header.sam | sort -u > contigs.txt
+
+    awk -F'\t' 'NR == FNR { known[$1]; next } /^(#|track|browser)/ { next } ($1 in known)' \
+      contigs.txt "~{intervalBed}" | sort -k1,1 -k2,2n > intervals.bed
+
+    kept=$(wc -l < intervals.bed)
+    total=$(grep -c -v -e '^#' -e '^track' -e '^browser' "~{intervalBed}" || true)
+    echo "fingerprint intervals: kept $kept of $total (dropped: contig not in this header)" >&2
+
+    if [[ "~{filterToIntervals}" = "true" && "$kept" -eq 0 ]]; then
+      echo "ERROR: none of the $total fingerprint intervals in ~{intervalBed} name a contig" >&2
+      echo "       declared by this input. Wrong reference build, or chr-prefix mismatch?" >&2
+      exit 1
+    fi
+
+    # Can the lane streams seek to the intervals through the index (-M -L), or do
+    # they have to filter a full sequential pass (-L)?
+    #
+    # Both give identical reads; -M is the one that makes per-lane streaming
+    # affordable, since it touches only the fingerprint intervals instead of
+    # decoding the whole file once per stream.
+    #
+    # It is not available on every samtools. Up to and including 1.15, sam_view.c
+    # loads the index only when an index file or a region argument was given:
+    #
+    #   if ( settings.fn_idx_in || nregs )                          # 1.15
+    #   if ( settings.fn_idx_in || nregs || settings.multi_region )  # 1.16 and up
+    #
+    # so with -M -L and no region argument, 1.15 hands a NULL index to the
+    # multi-region iterator and dies with "Iterator could not be created.
+    # Aborting.". Plain -L needs no index and is unaffected - which is why the
+    # older split-based pipeline ran fine on the same samtools.
+    #
+    # Probe it once here rather than let every lane task rediscover it.
+    echo "true" > canSeek.txt
+    if [[ "$kept" -gt 0 ]]; then
+      head -1 intervals.bed > probe.bed
+      if ! samtools view -c -T "~{refFasta}" -M -L probe.bed input.$EXT > /dev/null 2>probe.err; then
+        echo "false" > canSeek.txt
+        echo "WARNING: cannot seek to the fingerprint intervals through the index:" >&2
+        sed 's/^/  /' probe.err >&2
+        echo "         $(samtools --version | head -1)" >&2
+        echo "         Falling back to a full sequential pass per lane stream: same" >&2
+        echo "         reads, but every stream decodes the whole input. samtools 1.16" >&2
+        echo "         or newer restores the fast path." >&2
+      fi
+    fi
+    echo "index seeking: $(cat canSeek.txt)" >&2
 ```
 ```
   set -euo pipefail
@@ -128,29 +150,33 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
   if [ "$EXT" = "cram" ]; then ln -s ~{inputBai} input.cram.crai
   else                          ln -s ~{inputBai} input.bam.bai
   fi
-  samtools view -b -T ~{refFasta} input.$EXT \
-        ~{sep=" " intervals} > intervalBam.bam
-  samtools index intervalBam.bam intervalBam.bam.bai
+
+  # -M seeks to the intervals through the index; without it -L still filters
+  # correctly, but only by reading the whole file. prepareLanes probed which one
+  # this input's header supports.
+  regions=()
+  if [[ "~{filterToIntervals}" = "true" ]]; then
+    if [[ "~{useIndexSeek}" = "true" ]]; then
+      regions+=(-M -L "~{intervalBed}")
+    else
+      regions+=(-L "~{intervalBed}")
+    fi
+  fi
+
+  # MarkDuplicates reads its input twice, so this is the one step that needs a
+  # file rather than a stream. The lane bam is task-local and never provisioned.
+  samtools view -b -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT > lane.bam
 
   $GATK_ROOT/bin/gatk --java-options "-Xmx~{jobMemory - overhead}G" MarkDuplicates \
-                      -I intervalBam.bam \
+                      -I lane.bam \
                       --METRICS_FILE ~{outputFileNamePrefix}.dupmetrics \
                       --VALIDATION_STRINGENCY SILENT \
                       --CREATE_INDEX true \
                       -O ~{outputFileNamePrefix}.dupmarked.bam
-```
-```
-    set -euo pipefail
 
-    $GATK_ROOT/bin/gatk --java-options "-Xmx~{jobMemory - overhead}G" MergeSamFiles \
-    --INPUT ~{sep=" --INPUT " bams} \
-    --OUTPUT "~{outputFileName}~{suffix}.bam" \
-    --CREATE_INDEX true \
-    --SORT_ORDER coordinate \
-    --ASSUME_SORTED false \
-    --USE_THREADING true \
-    --VALIDATION_STRINGENCY SILENT \
-    ~{additionalParams}
+  # --CREATE_INDEX writes <prefix>.bai; the streams downstream look for the
+  # index beside the bam it belongs to.
+  mv ~{outputFileNamePrefix}.dupmarked.bai ~{outputFileNamePrefix}.dupmarked.bam.bai
 ```
 ```
   set -euo pipefail
@@ -161,8 +187,27 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
   else                          ln -s ~{inputBai} input.bam.bai
   fi
 
+  # -M seeks to the intervals through the index; without it -L still filters
+  # correctly, but only by reading the whole file. prepareLanes probed which one
+  # this input's header supports.
+  regions=()
+  if [[ "~{filterToIntervals}" = "true" ]]; then
+    if [[ "~{useIndexSeek}" = "true" ]]; then
+      regions+=(-M -L "~{intervalBed}")
+    else
+      regions+=(-L "~{intervalBed}")
+    fi
+  fi
+
+  # Each metric re-streams the lane instead of sharing a temporary bam. With
+  # -M -L that is an index seek over the fingerprint intervals, not a full pass,
+  # and nothing is written to disk.
+  stream_lane () {
+    $SAMTOOLS_ROOT/bin/samtools view -u -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT
+  }
+
   ### samtools stats
-  $SAMTOOLS_ROOT/bin/samtools stats --reference ~{refFasta} input.$EXT > ~{outputFileNamePrefix}.samstats.txt
+  stream_lane | $SAMTOOLS_ROOT/bin/samtools stats --reference ~{refFasta} - > ~{outputFileNamePrefix}.samstats.txt
   reads=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "raw total sequences:" | cut -f3`
   mapped_reads=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "reads mapped:" | cut -f 3`
   unmapped_reads=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "reads unmapped:" | cut -f 3`
@@ -170,11 +215,11 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
   reads_duplicated=`cat ~{outputFileNamePrefix}.samstats.txt | grep ^SN | grep "reads duplicated:" | cut -f 3`
 
   ### samtools coverage, with duplicates
-  $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL --reference ~{refFasta} input.$EXT > ~{outputFileNamePrefix}.coverage.txt
+  stream_lane | $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL --reference ~{refFasta} - > ~{outputFileNamePrefix}.coverage.txt
   mean_cvg=`cat ~{outputFileNamePrefix}.coverage.txt | grep -P "^chr\d+\t|^chrX\t|^chrY\t" | awk '{ space += ($3-$2)+1; bases += $7*($3-$2);} END { print bases/space }'`
 
   ### samtools coverage, deduplicated
-  $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL,DUP --reference ~{refFasta} input.$EXT > ~{outputFileNamePrefix}.dedup.coverage.txt
+  stream_lane | $SAMTOOLS_ROOT/bin/samtools coverage --ff UNMAP,SECONDARY,QCFAIL,DUP --reference ~{refFasta} - > ~{outputFileNamePrefix}.dedup.coverage.txt
   mean_dedup_cvg=`cat ~{outputFileNamePrefix}.dedup.coverage.txt | grep -P "^chr\d+\t|^chrX\t|^chrY\t" | awk '{ space += ($3-$2)+1; bases += $7*($3-$2);} END { print bases/space }'`
 
   ### json file
@@ -183,7 +228,7 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
 ```
   set -euo pipefail
 
- # GATK needs the index beside the alignment file; Cromwell may localize
+ # samtools needs the index beside the alignment file; Cromwell may localize
  # them to different directories, so link both into the task dir.
  EXT=$(basename ~{inputBam} | rev | cut -d. -f1 | rev)
  ln -s ~{inputBam} input.$EXT
@@ -191,20 +236,38 @@ This section lists command(s) run by crosscheckFingerprintsCollectorCram workflo
  else                          ln -s ~{inputBai} input.bam.bai
  fi
 
+ # -M seeks to the intervals through the index; without it -L still filters
+ # correctly, but only by reading the whole file. prepareLanes probed which one
+ # this input's header supports.
+ regions=()
+ if [[ "~{filterToIntervals}" = "true" ]]; then
+   if [[ "~{useIndexSeek}" = "true" ]]; then
+     regions+=(-M -L "~{intervalBed}")
+   else
+     regions+=(-L "~{intervalBed}")
+   fi
+ fi
+
+ # ExtractFingerprint cannot read a pipe: Picard opens its input more than once,
+ # and on a non-seekable stream the second read fails with
+ #   RuntimeIOException: Read error; BinaryCodec in readmode; streamed file
+ # (-I /dev/stdin does work for Picard tools that make a single pass). So the
+ # lane's reads land in a task-local bam first. It holds one read group over the
+ # fingerprint intervals, is never provisioned, and the merged input is still
+ # decoded just once - over those intervals only.
+ samtools view -b -T "~{refFasta}" -r "~{readGroup}" ${regions[@]+"${regions[@]}"} input.$EXT > lane.bam
+
+ # No index on lane.bam: without one the fingerprinter walks it sequentially,
+ # which is what we want for a file this small.
  $GATK_ROOT/bin/gatk ExtractFingerprint \
                     -R ~{refFasta} \
                     -H ~{haplotypeMap} \
-                    -I input.$EXT \
+                    -I lane.bam \
                     -O ~{outputFileNamePrefix}.vcf \
                     --SAMPLE_ALIAS ~{sampleId}
 
  $TABIX_ROOT/bin/bgzip -c ~{outputFileNamePrefix}.vcf > ~{outputFileNamePrefix}.vcf.gz
  $TABIX_ROOT/bin/tabix -p vcf ~{outputFileNamePrefix}.vcf.gz
-```
-```
-    set -euo pipefail
-    samtools view -H -T ~{refFasta} ~{inputBam} \
-      | awk -F'\t' '!found && /^@RG/ { for (i=1; i<=NF; i++) if ($i ~ /^ID:/) { sub(/^ID:/, "", $i); print $i; found=1 } }'
 ```
 ## Support
 
