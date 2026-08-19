@@ -1,9 +1,9 @@
 # crosscheckFingerprintsCollectorMultiLane
 
+## Overview
+
 Multi-lane crosscheckFingerprintsCollector for aligned input. Takes a merged-lanes cram or bam, reads the lane set from its @RG headers, and for each lane reads back only that read group over the fingerprint intervals, seeking through the index - no cram-to-bam conversion of the whole input and no per-lane bam provisioned. Outputs are vcf files that can be processed through gatk CrosscheckFingerprints
 ##
-
-## Overview
 
 ## Dependencies
 
@@ -136,9 +136,19 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
         echo "WARNING: cannot seek to the fingerprint intervals through the index:" >&2
         sed 's/^/  /' probe.err >&2
         echo "         $(samtools --version | head -1)" >&2
-        echo "         Falling back to a full sequential pass per lane stream: same" >&2
-        echo "         reads, but every stream decodes the whole input. samtools 1.16" >&2
-        echo "         or newer restores the fast path." >&2
+        echo "         Falling back to a full sequential pass per lane stream:" >&2
+        echo "         every stream decodes the whole input. samtools 1.16 or" >&2
+        echo "         newer restores the fast path." >&2
+
+        # Without -M, a read overlapping more than one region of -L is emitted
+        # once per region, and duplicate records make MarkDuplicates abort.
+        # Stop here rather than let it fail further downstream.
+        if [[ "~{filterToIntervals}" = "true" && "$kept" -gt 1 ]]; then
+          echo "ERROR: interval filtering needs the -M fast path to guarantee each read" >&2
+          echo "       is emitted once. Use samtools 1.16 or newer, or run with" >&2
+          echo "       filterBam = false." >&2
+          exit 1
+        fi
       fi
     fi
     echo "index seeking: $(cat canSeek.txt)" >&2
@@ -269,6 +279,7 @@ This section lists command(s) run by crosscheckFingerprintsCollectorMultiLane wo
  $TABIX_ROOT/bin/bgzip -c ~{outputFileNamePrefix}.vcf > ~{outputFileNamePrefix}.vcf.gz
  $TABIX_ROOT/bin/tabix -p vcf ~{outputFileNamePrefix}.vcf.gz
 ```
+
 ## Support
 
 For support, please file an issue on the [Github project](https://github.com/oicr-gsi) or send an email to gsi@oicr.on.ca .
